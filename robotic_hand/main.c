@@ -4,7 +4,7 @@
 #include "Driver_USART.h"
 #include <stdio.h>
 
-#define MSGQUEUE_OBJECTS 3                     // number of Message Queue Objects
+#define MSGQUEUE_OBJECTS 5                     // number of Message Queue Objects
 #define UART_ITEM_COUNT 10
 #define BUFFER_SIZE 25
 #define NUM_SERVO 5
@@ -34,7 +34,7 @@ const osThreadAttr_t thrd2_attr = {
 void UART_handler(uint32_t event)
 {
 	int i;
-	static uint16_t msg[NUM_SERVO];
+	unsigned short msg[NUM_SERVO];
 	if (event & ARM_USART_EVENT_RECEIVE_COMPLETE)
 	{
 		//val = atoi(buffer);
@@ -53,8 +53,9 @@ void UART_handler(uint32_t event)
 			}*/
 		}
 		msg[0] = msg[1] = msg[2] = msg[3] = msg[4] = 2000;
-		osMessageQueuePut(q_id, msg, 0U, osWaitForever);
+		osMessageQueuePut(q_id, &msg, 0U, 0U);
 		osEventFlagsSet(evt_id, 3);
+		
 	}
 }
 
@@ -83,11 +84,7 @@ __NO_RETURN void LCD_thread(void *argument)
 {
 	
 	char string[50];
-	
 
-	BSP_LCD_Init();
-	BSP_LCD_Clear(LCD_COLOR_BLUE);
-	BSP_LCD_DisplayStringAt(0, 0, (unsigned char *) "Test LCD", CENTER_MODE);
 	
 	while(1)
 	{
@@ -99,20 +96,21 @@ __NO_RETURN void LCD_thread(void *argument)
 
 __NO_RETURN void SERVO_thread(void *argument)
 {
-	static uint16_t msg[NUM_SERVO];
+	unsigned short msg[NUM_SERVO];
 	osStatus_t status;
 	int j;
 
 	//initialize all servo pins
-	RCC->APB1ENR |= (1 << 1) | (1 << 3); // activate timer 3 and timer 5
+	RCC->APB1ENR |= ((1 << 1) | (1 << 3)); // activate timer 3 and timer 5
 	RCC->AHB1ENR |= (1 << 0); // activate gpio A
 
-	GPIOA->MODER |= (2 << 0) | (2 << 2) | (2 << 4) | (2 << 12) | (2 << 14); // PA0 in AF mode
-
+	GPIOA->MODER |= ((2 << 0) | (2 << 2) | (2 << 4) | (2 << 12) | (2 << 14)); // PA0 in AF mode
+	
 	GPIOA->AFR[0] |= ((2 << 0) | (2 << 4) | (2 << 8) | (2 << 24) | (2 << 28)); 
 	// PA0 in AF2 mode (TIM5_CH1), PA1 TIM5_CH2, PA2 TIM5_CH3, PA6 TIM3_CH1, PA7 TIM3_CH2
 	
 	// TIM 5 timer clk is 108MHz
+	
 	TIM5->PSC = 107;
 	TIM5->ARR = 19999;
 	TIM5->CCR1 = 1500;
@@ -129,25 +127,26 @@ __NO_RETURN void SERVO_thread(void *argument)
 	TIM3->CCR1 = 1500;
 	TIM3->CCR2 = 1500;
 	TIM3->CCMR1 |= (6 << 4); // TIM3_CH1
-	TIM3->CCMR2 |= (6 << 12); // TIM3_CH2
+	TIM3->CCMR1 |= (6 << 12); // TIM3_CH2
 	TIM3->CCER |= ((1 << 0) | (1 << 4));
 
 
-	// start timers
+			// start timers
 	TIM5->CR1 |= (1 << 0);
 	TIM3->CR1 |= (1 << 0);
+	
+	char string2[50];
 
 	while(1)
 	{
-		status = osMessageQueueGet(q_id, &msg, NULL, osWaitForever);   // wait for message
-    	if (status == osOK) 
-			{
-				for (j = 0; j < NUM_SERVO; j++)
-				{
-					servo(j, msg[j]);
-				}
-    	}
-
+		osMessageQueueGet(q_id, &msg, NULL, osWaitForever);   // wait for message
+		sprintf(string2, "0x%04x%04x%04x%04x%04x", msg[0], msg[1], msg[2], msg[3], msg[4]);
+		BSP_LCD_DisplayStringAt(0, 400, string2, CENTER_MODE);
+		
+		for (j = 0; j < NUM_SERVO; j++)
+		{
+			servo(j, msg[j]);
+		}
 	}
 }
 
@@ -189,6 +188,9 @@ int main(void)
 {
 	SystemClock_Config();
 	
+	BSP_LCD_Init();
+	BSP_LCD_Clear(LCD_COLOR_BLUE);
+	BSP_LCD_DisplayStringAt(0, 0, (unsigned char *) "Test LCD", CENTER_MODE);
 
 	
 	osKernelInitialize();
