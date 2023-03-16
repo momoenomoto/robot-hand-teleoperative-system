@@ -6,15 +6,22 @@
 
 #define UART_ITEM_COUNT 10
 #define BUFFER_SIZE 5
+#define IN_MIN 0.0
+#define OUT_MIN 300
+#define IN_MAX 5.0
+#define OUT_MAX 600
 
 void SysTick_Handler(void);
 void SystemClock_Config(void);
 extern ARM_DRIVER_USART Driver_USART1;
 void TIM5_IRQHandler(void);
+int map(double x, double in_min, double in_max, double out_min, double out_max);
 
 static unsigned short buffer[BUFFER_SIZE] = {0};
 static double vout;
 static char string[50];
+static int i = 0;
+
 
 void TIM5_IRQHandler(void){ 
 	TIM5->SR = ~(1 << 0);
@@ -25,6 +32,8 @@ void TIM5_IRQHandler(void){
 		vout = 4095;
 	sprintf(string, "%.3fV", vout);
 	BSP_LCD_DisplayStringAt(0, 300, string, CENTER_MODE);
+	BSP_LCD_DisplayStringAt(i, map(vout, IN_MIN, IN_MAX, OUT_MIN, OUT_MAX), 'o', LEFT_MODE);
+	i++;
 	//buffer[0] = vout; 
 	//sprintf(string, "%04u", buffer[0]);
 	//BSP_LCD_DisplayStringAt(0, 300, string, CENTER_MODE);
@@ -86,6 +95,11 @@ int main(void)
 	while(1);
 
 	return 0;
+}
+
+int map(double x, double in_min, double in_max, double out_min, double out_max)
+{
+	return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
 
 
