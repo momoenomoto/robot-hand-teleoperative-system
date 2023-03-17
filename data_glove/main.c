@@ -16,9 +16,11 @@ void TIM_thread(void *argument) __NO_RETURN;
 void ADC_thread(void *argument) __NO_RETURN;
 void UART_handler(uint32_t event);
 void ADC_IRQHandler(void);
+void DMA2_Stream0_IRQHandler(void);
 
 static uint16_t buffer[BUFFER_SIZE] = {0};
-static double vout;
+static uint32_t RxData[50] = {0};
+static double vout, result;
 
 osEventFlagsId_t evt_id;
 osThreadId_t thrd_id1, thrd_id2, thrd_id3, thrd_id4;
@@ -30,32 +32,75 @@ osThreadId_t thrd_id1, thrd_id2, thrd_id3, thrd_id4;
 //   .priority  = osPriorityLow,
 // };
 
+void DMA2_Stream0_IRQHandler(void)
+{
+	char string3[50];
+	if (DMA2->LISR & (1<<5))
+	{
+		DMA2->LIFCR |= (1<<5);
+		sprintf(string3, "0x%04x%04x%04x%04x%04x", buffer[0], buffer[1], buffer[2], buffer[3], buffer[4]);
+		BSP_LCD_DisplayStringAt(0, 700, string3, CENTER_MODE);
+		osEventFlagsSet(evt_id, 3);
+	}
+	if (DMA2->LISR & (1<<3))
+	{
+		DMA2->LIFCR |= (1<<3);
+		
+	}
+}
+
 void ADC_IRQHandler(void)
 {
-	if (ADC1->SR & ADC_SR_EOC)
-	{
-		BSP_LCD_DisplayStringAt(0, 400, "here", CENTER_MODE); // this is displayed on LCD
+	if (ADC1->SR & (1<<1))
+	{		
+		result = ADC1->DR;
 		osEventFlagsSet(evt_id, 8);
 	}
 }
 
 __NO_RETURN void ADC_thread(void *argument)
 {
+	RCC->AHB1ENR |= (1 << 22); //DMA2
 	RCC->AHB1ENR |= (1 << 0); // Activate GPIOA
 	RCC->APB2ENR |= (1 << 8); // Activate ADC1
-	GPIOA->MODER |= (3 << 2);  // PA1 for analog mode
+	GPIOA->MODER |= ((3 << 2) | (3 << 4));  // PA1 , PA2 for analog mode
 
-	// ADC1_IN1
-	ADC1->SQR3 |= (1 << 0);
-	ADC1->CR2 |= (1 << 0); // activates output channel 1
-	ADC1->CR1 |= (1 << 5); // EOCIE bit set, generate interrupt
-
-	NVIC_EnableIRQ(ADC_IRQn);
+	ADC1->SQR1 |= (1 << 20); // 2 channels to convert
+	// ADC1_IN1, ADC1_IN2
+	ADC1->SQR3 |= ((1 << 0)|(2<<5)); // channel number for sequence
+	ADC1->CR1 |= (1 << 5); // EOCIE bit set, generate interrupt, and scan mode activated
+	ADC1->CR1 |= (1<<8); // scan mode
+	//ADC1->CR1 &= ~(1<<24); // 12 bit adc
+	//ADC1->CR2 |= (1<<1); // cont mode
+	//ADC1->CR2 |= (1<<10); // EOC after each conversion
+	//ADC1->CR2 &= ~(1<<11); // data alignment right
+	//ADC1->CR2 |= (1<<9); // continuous DMA
 	
+	//ADC1->SMPR2 |= (3<<0) | (3<<3);
+	NVIC_EnableIRQ(ADC_IRQn);
+	ADC1->CR2 |= (1 << 0); // enable ADC
+	
+	
+	DMA2_Stream0->CR &= ~(3<<6); // data direction peripheral to memory
+	DMA2_Stream0->CR &= ~(3<<9); // fixed peripheral address pointer
+	DMA2_Stream0->CR |= (1<<8) | (1<<10) | (1<<11) |(1<<13)| (1<<16); // circular mode, memory address increment, perpheral inc, 16 bit data, high priority 
+	DMA2_Stream0->CR &= ~(7<<25); // channel 0
+	DMA2_Stream0->NDTR = 2; // 2 channels
+	DMA2_Stream0->PAR = (uint32_t) &(ADC1->DR); // source address
+	DMA2_Stream0->M0AR = (uint32_t) &buffer[0];
+	
+	
+	NVIC_EnableIRQ(DMA2_Stream0_IRQn);
+	
+	DMA2_Stream0->CR |= ((1<<4) | (1<<1));
+	DMA2_Stream0->CR |= (1<<0);
+	ADC1->CR2 &= ~(1<<8); // reset DMA
+	ADC1->CR2 |= (1 << 8); //enables DMA 
+
 	while (1)
 	{
-		osEventFlagsWait(evt_id, 8, osFlagsWaitAny, osWaitForever);
-		vout = (ADC1->DR * 3.3) / 4096;
+		osEventFlagsWait(evt_id, 8, osFlagsWaitAll, osWaitForever);
+		vout = (result * 3.3) / 4096;
 		if (vout > 4095)
 			vout = 4095;
 		buffer[0] = (uint16_t) (vout * 1000); 
@@ -67,7 +112,10 @@ __NO_RETURN void ADC_thread(void *argument)
 
 void TIM5_IRQHandler(void){ 
 	TIM5->SR = ~(1 << 0);
-	ADC1->CR2 |= (1 << 30);
+	//ADC1->SR = 0;
+
+	ADC1->CR2 |= (1 << 30); // start conversion
+	
 	
 	//while(!(ADC1->SR & (1<<1))); // wait while conversion not complete
 			
@@ -157,8 +205,8 @@ int main(void)
 	evt_id = osEventFlagsNew(NULL);
 	thrd_id1 = osThreadNew(UART_thread, NULL, NULL);
 	thrd_id2 = osThreadNew(LCD_thread, NULL, NULL);
-	thrd_id3 = osThreadNew(ADC_thread, NULL, NULL);
 	thrd_id4 = osThreadNew(TIM_thread, NULL, NULL);
+	thrd_id3 = osThreadNew(ADC_thread, NULL, NULL);
 	
 	osKernelStart();
 
