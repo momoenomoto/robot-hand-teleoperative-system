@@ -18,8 +18,8 @@ void UART_handler(uint32_t event);
 void ADC_IRQHandler(void);
 void DMA2_Stream0_IRQHandler(void);
 
-static uint16_t buffer[BUFFER_SIZE] = {0};
-static uint32_t RxData[50] = {0};
+static volatile uint16_t buffer[BUFFER_SIZE] = {0};
+//static uint32_t RxData[50] = {0};
 static double vout, result;
 
 osEventFlagsId_t evt_id;
@@ -35,12 +35,12 @@ osThreadId_t thrd_id1, thrd_id2, thrd_id3, thrd_id4;
 void DMA2_Stream0_IRQHandler(void)
 {
 	char string3[50];
-	if (DMA2->LISR & (1<<5))
+	if (DMA2->LISR & (1<<5)) // TCIF0
 	{
-		DMA2->LIFCR |= (1<<5);
+		DMA2->LIFCR |= (1<<5); // set CTCIF
 		sprintf(string3, "0x%04x%04x%04x%04x%04x", buffer[0], buffer[1], buffer[2], buffer[3], buffer[4]);
 		BSP_LCD_DisplayStringAt(0, 700, string3, CENTER_MODE);
-		osEventFlagsSet(evt_id, 3);
+		osEventFlagsSet(evt_id, 3); // will need to add 8 later on.
 	}
 	if (DMA2->LISR & (1<<3))
 	{
@@ -51,49 +51,62 @@ void DMA2_Stream0_IRQHandler(void)
 
 void ADC_IRQHandler(void)
 {
+	/*
 	if (ADC1->SR & (1<<1))
 	{		
 		result = ADC1->DR;
 		osEventFlagsSet(evt_id, 8);
-	}
+	}*/
 }
 
 __NO_RETURN void ADC_thread(void *argument)
 {
-	RCC->AHB1ENR |= (1 << 22); //DMA2
+	RCC->AHB1ENR |= (1 << 22); // Activate DMA2
 	RCC->AHB1ENR |= (1 << 0); // Activate GPIOA
 	RCC->APB2ENR |= (1 << 8); // Activate ADC1
 	GPIOA->MODER |= ((3 << 2) | (3 << 4));  // PA1 , PA2 for analog mode
 
 	ADC1->SQR1 |= (1 << 20); // 2 channels to convert
 	// ADC1_IN1, ADC1_IN2
-	ADC1->SQR3 |= ((1 << 0)|(2<<5)); // channel number for sequence
-	ADC1->CR1 |= (1 << 5); // EOCIE bit set, generate interrupt, and scan mode activated
-	ADC1->CR1 |= (1<<8); // scan mode
+	ADC1->SQR3 |= ((1 << 0)| (2 << 5)); // channel numbers for sequence
+	ADC1->CR1 |= (1<<8); // enable scan mode
+	ADC1->CR2 &= ~(1<<1); // cont mode off
+
+
+	//ADC1->CR1 |= (1 << 5); // EOCIE bit set, generate interrupt
+	
 	//ADC1->CR1 &= ~(1<<24); // 12 bit adc
-	//ADC1->CR2 |= (1<<1); // cont mode
 	//ADC1->CR2 |= (1<<10); // EOC after each conversion
 	//ADC1->CR2 &= ~(1<<11); // data alignment right
 	//ADC1->CR2 |= (1<<9); // continuous DMA
 	
 	//ADC1->SMPR2 |= (3<<0) | (3<<3);
-	NVIC_EnableIRQ(ADC_IRQn);
-	ADC1->CR2 |= (1 << 0); // enable ADC
+	//NVIC_SetPriority(ADC_IRQn, 0);
+	//NVIC_EnableIRQ(ADC_IRQn);
+	//ADC1->CR2 |= (1 << 0); // enable ADC
 	
 	
 	DMA2_Stream0->CR &= ~(3<<6); // data direction peripheral to memory
 	DMA2_Stream0->CR &= ~(3<<9); // fixed peripheral address pointer
-	DMA2_Stream0->CR |= (1<<8) | (1<<10) | (1<<11) |(1<<13)| (1<<16); // circular mode, memory address increment, perpheral inc, 16 bit data, high priority 
-	DMA2_Stream0->CR &= ~(7<<25); // channel 0
-	DMA2_Stream0->NDTR = 2; // 2 channels
+	DMA2_Stream0->CR |= (1<<10) | (1<<11) |(1<<13)| (2<<16); // memory address increment, 16 bit mem data, 16 bit peripheral data, high priority 
+	DMA2_Stream0->CR &= ~(1<<9); // no peripheral address inc
+	DMA2_Stream0->CR |= (1<<8); // circ mode enabled
+	DMA2_Stream0->CR &= ~(7<<25); // channel 0 selected for stream
+
+	DMA2_Stream0->NDTR = 2; // 2 channels for dma transfer size
 	DMA2_Stream0->PAR = (uint32_t) &(ADC1->DR); // source address
-	DMA2_Stream0->M0AR = (uint32_t) &buffer[0];
+	DMA2_Stream0->M0AR = (uint32_t) &buffer[0]; // destination address
 	
-	
+	NVIC_SetPriority(DMA2_Stream0_IRQn, 1); // DMA IRQ lower priority than ADC IRQ.
 	NVIC_EnableIRQ(DMA2_Stream0_IRQn);
 	
-	DMA2_Stream0->CR |= ((1<<4) | (1<<1));
-	DMA2_Stream0->CR |= (1<<0);
+	DMA2_Stream0->CR |= ((1<<4) | (1<<2));  // enable transfer complete interrupt and transfer error interrupt 
+	DMA2_Stream0->CR |= (1<<0); // enable DMA stream
+
+
+	ADC1->CR2 |= (1 << 0); // enable ADC
+
+	// may need to move following to timer interrupt handler
 	ADC1->CR2 &= ~(1<<8); // reset DMA
 	ADC1->CR2 |= (1 << 8); //enables DMA 
 
