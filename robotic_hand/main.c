@@ -4,9 +4,7 @@
 #include "Driver_USART.h"
 #include <stdio.h>
 
-#define MSGQUEUE_OBJECTS 5                     // number of Message Queue Objects
-#define UART_ITEM_COUNT 10
-#define BUFFER_SIZE 25
+#define MSGQUEUE_OBJECTS 1                     // number of Message Queue Objects
 #define NUM_SERVO 5
 
 void SystemClock_Config(void);
@@ -17,8 +15,9 @@ void LCD_thread(void *argument) __NO_RETURN;
 void UART_thread(void *argument) __NO_RETURN;
 void SERVO_thread(void *argument) __NO_RETURN;
 
-static unsigned short buffer[BUFFER_SIZE] = {0}, data[BUFFER_SIZE] = {0};
-//static uint16_t data[NUM_SERVO] = {0}; // 2 bytes each: 0 to 65535
+unsigned short buffer[NUM_SERVO] = {0};
+unsigned short msg_send[NUM_SERVO] = {0};
+unsigned short msg_receive[NUM_SERVO] = {0};
 
 osMessageQueueId_t q_id; 
 osEventFlagsId_t evt_id;
@@ -34,28 +33,14 @@ const osThreadAttr_t thrd2_attr = {
 void UART_handler(uint32_t event)
 {
 	int i;
-	unsigned short msg[NUM_SERVO];
 	if (event & ARM_USART_EVENT_RECEIVE_COMPLETE)
 	{
-		//val = atoi(buffer);
-		//use the buffer
-		for (i = 0; i < BUFFER_SIZE; i++)
+		for (i = 0; i < NUM_SERVO; i++)
 		{
-			data[i] = buffer[i];
-			
-			/*
-			if (buffer[i] == 0) continue;
-			else 
-			{
-				msg.servo_id = i;
-				msg.data = buffer[i];
-				osMessageQueuePut(q_id, &msg, 0U, osWaitForever);
-			}*/
+			msg_send[i] = buffer[i];
 		}
-		msg[0] = msg[1] = msg[2] = msg[3] = msg[4] = 2000;
-		osMessageQueuePut(q_id, &msg, 0U, 0U);
+		osMessageQueuePut(q_id, &msg_send, 0U, 0U);
 		osEventFlagsSet(evt_id, 3);
-		
 	}
 }
 
@@ -75,7 +60,7 @@ __NO_RETURN void UART_thread(void *argument)
 	while(1)
 	{
 		// continue receiving from uart
-		Driver_USART1.Receive(buffer, UART_ITEM_COUNT);
+		Driver_USART1.Receive(buffer, NUM_SERVO * 2);
 		osEventFlagsWait(evt_id, 1, osFlagsWaitAny, osWaitForever);
 	}
 }
@@ -84,20 +69,17 @@ __NO_RETURN void LCD_thread(void *argument)
 {
 	
 	char string[50];
-
 	
 	while(1)
 	{
 		osEventFlagsWait(evt_id, 2, osFlagsWaitAny, osWaitForever);
-		sprintf(string, "0x%04x%04x%04x%04x%04x", data[0], data[1], data[2], data[3],data[4]);
-		BSP_LCD_DisplayStringAt(0, 300, string, CENTER_MODE);
+		sprintf(string, "0x%04x%04x%04x%04x%04x", msg_send[0], msg_send[1], msg_send[2], msg_send[3],msg_send[4]);
+		BSP_LCD_DisplayStringAt(0, 300, (uint8_t *) string, CENTER_MODE);
 	}
 }
 
 __NO_RETURN void SERVO_thread(void *argument)
 {
-	unsigned short msg[NUM_SERVO];
-	osStatus_t status;
 	int j;
 
 	//initialize all servo pins
@@ -131,7 +113,7 @@ __NO_RETURN void SERVO_thread(void *argument)
 	TIM3->CCER |= ((1 << 0) | (1 << 4));
 
 
-			// start timers
+	// start timers
 	TIM5->CR1 |= (1 << 0);
 	TIM3->CR1 |= (1 << 0);
 	
@@ -139,13 +121,14 @@ __NO_RETURN void SERVO_thread(void *argument)
 
 	while(1)
 	{
-		osMessageQueueGet(q_id, &msg, NULL, osWaitForever);   // wait for message
-		sprintf(string2, "0x%04x%04x%04x%04x%04x", msg[0], msg[1], msg[2], msg[3], msg[4]);
-		BSP_LCD_DisplayStringAt(0, 400, string2, CENTER_MODE);
+		osMessageQueueGet(q_id, &msg_receive, NULL, osWaitForever);   // wait for message
+		//sprintf(string2, "0x%04x%04x%04x%04x%04x", msg_receive[0], msg_receive[1], msg_receive[2], msg_receive[3], msg_receive[4]);
+		//BSP_LCD_DisplayStringAt(0, 400, string2, CENTER_MODE);
 		
 		for (j = 0; j < NUM_SERVO; j++)
 		{
-			servo(j, msg[j]);
+			if (msg_receive[j] == 0) continue;
+			else servo(j, msg_receive[j]);
 		}
 	}
 }
@@ -195,10 +178,10 @@ int main(void)
 	
 	osKernelInitialize();
 	evt_id = osEventFlagsNew(NULL);
-	q_id = osMessageQueueNew(MSGQUEUE_OBJECTS, sizeof(data), NULL);
-	thrd_id1 = osThreadNew(UART_thread, NULL, NULL);
-	thrd_id2 = osThreadNew(LCD_thread, NULL, NULL);
-	thrd_id3 = osThreadNew(SERVO_thread, NULL, NULL);
+	q_id = osMessageQueueNew(MSGQUEUE_OBJECTS, sizeof(msg_send), NULL);
+	thrd_id1 = osThreadNew(UART_thread, NULL, NULL); // high priority
+	thrd_id2 = osThreadNew(LCD_thread, NULL, &thrd2_attr); // low priority
+	thrd_id3 = osThreadNew(SERVO_thread, NULL, NULL); 
 	
 	osKernelStart();
 
