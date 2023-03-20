@@ -2,9 +2,13 @@
 #include "stm32f7xx.h"                  // Device header
 #include "Open746i_lcd.h"
 #include "Driver_USART.h"
+#include <stdio.h>
 
-#define UART_ITEM_COUNT 10
-#define BUFFER_SIZE 5
+#define NUM_SERVO 5
+#define IN_MIN 0
+#define IN_MAX 4095
+#define OUT_MIN 500
+#define OUT_MAX 2000
 
 void SystemClock_Config(void);
 extern ARM_DRIVER_USART Driver_USART1;
@@ -13,24 +17,23 @@ void TIM5_IRQHandler(void);
 void LCD_thread(void *argument) __NO_RETURN;
 void UART_thread(void *argument) __NO_RETURN;
 void TIM_thread(void *argument) __NO_RETURN;
-void ADC_thread(void *argument) __NO_RETURN;
+void ADCDMA_thread(void *argument) __NO_RETURN;
 void UART_handler(uint32_t event);
 void DMA2_Stream4_IRQHandler(void);
 
-static volatile uint16_t buffer[BUFFER_SIZE] = {0};
-static double voltages[BUFFER_SIZE] = {0};
-
-static double vout, result;
+static volatile uint16_t adc_vals[NUM_SERVO] = {0};
+static unsigned short uart_buffer[NUM_SERVO] = {0};
+static double voltages[NUM_SERVO] = {0};
 
 osEventFlagsId_t evt_id;
 osThreadId_t thrd_id1, thrd_id2, thrd_id3, thrd_id4;
 
-// const osThreadAttr_t thrd1_attr = {
-//   .priority  = osPriorityHigh,
-// };
-// const osThreadAttr_t thrd2_attr = {
-//   .priority  = osPriorityLow,
-// };
+const osThreadAttr_t thrd1_attr = {
+  .priority  = osPriorityHigh,
+};
+const osThreadAttr_t thrd2_attr = {
+	.priority  = osPriorityLow,
+};
 
 void DMA2_Stream4_IRQHandler(void)
 {
@@ -42,20 +45,19 @@ void DMA2_Stream4_IRQHandler(void)
 	if (DMA2->HISR & (1<<3))
 	{
 		DMA2->HIFCR |= (1<<3);
-		
 	}
 }
 
-__NO_RETURN void ADC_thread(void *argument)
+__NO_RETURN void ADCDMA_thread(void *argument)
 {
 	RCC->AHB1ENR |= (1 << 22); // Activate DMA2
 	RCC->AHB1ENR |= (1 << 0); // Activate GPIOA
 	RCC->APB2ENR |= (1 << 8); // Activate ADC1
-	GPIOA->MODER |= ((3 << 2) | (3 << 4));  // PA1 , PA2 for analog mode
+	GPIOA->MODER |= ((3 << 2) | (3 << 4) | (3 << 8) | (3 << 10) | (3 << 12));  // PA1 , PA2, PA4, PA5, PA6 for analog mode
 
-	ADC1->SQR1 |= (1 << 20); // 2 channels to convert
-	// ADC1_IN1, ADC1_IN2
-	ADC1->SQR3 |= ((1 << 0)| (2 << 5)); // channel numbers for sequence
+	ADC1->SQR1 |= (4 << 20); // 5 channels to convert
+	// ADC1_IN1, ADC1_IN2, ADC1_IN4, ADC1_IN5, ADC1_IN6
+	ADC1->SQR3 |= ((1 << 0)| (2 << 5) | (4<<10) | (5<<15) | (6<<20)); // channel numbers for sequence
 	ADC1->CR1 |= (1<<8); // enable scan mode
 	ADC1->CR2 &= ~(1<<1); // cont mode off
 
@@ -64,7 +66,7 @@ __NO_RETURN void ADC_thread(void *argument)
 	
 	//ADC1->CR1 &= ~(1<<24); // 12 bit adc
 	//ADC1->CR2 |= (1<<10); // EOC after each conversion
-	//ADC1->CR2 &= ~(1<<11); // data alignment right
+	//ADC1->CR2 &= ~(1<<11); // uart_buffer alignment right
 	//ADC1->CR2 |= (1<<9); // continuous DMA
 	
 	//ADC1->SMPR2 |= (3<<0) | (3<<3);
@@ -74,39 +76,41 @@ __NO_RETURN void ADC_thread(void *argument)
 	
 	DMA2_Stream4->CR &= ~(4<<25); // channel 0 selected for stream
 	
-	DMA2_Stream4->CR &= ~(3<<6); // data direction peripheral to memory
+	DMA2_Stream4->CR &= ~(3<<6); // uart_buffer direction peripheral to memory
 	DMA2_Stream4->CR &= ~(3<<9); // fixed peripheral address pointer
-	DMA2_Stream4->CR |= ((1<<10) | (1<<11) |(1<<13)| (2<<16)); // memory address increment, 16 bit mem data, 16 bit peripheral data, high priority 
+	DMA2_Stream4->CR |= ((1<<10) | (1<<11) |(1<<13)| (2<<16)); // memory address increment, 16 bit mem uart_buffer, 16 bit peripheral uart_buffer, high priority 
 	DMA2_Stream4->CR &= ~(1<<9); // no peripheral address inc
 	DMA2_Stream4->CR |= (1<<8); // circ mode enabled
 
-	DMA2_Stream4->NDTR = 2; // 2 channels for dma transfer size
+	DMA2_Stream4->NDTR = 5; // 5 channels for dma transfer size
 	DMA2_Stream4->PAR = (uint32_t) &(ADC1->DR); // source address
-	DMA2_Stream4->M0AR = (uint32_t) &buffer[0]; // destination address
+	DMA2_Stream4->M0AR = (uint32_t) &adc_vals[0]; // destination address
 	
-	NVIC_SetPriority(DMA2_Stream4_IRQn, 1); 
+	//NVIC_SetPriority(DMA2_Stream4_IRQn, 1); 
 	NVIC_EnableIRQ(DMA2_Stream4_IRQn);
 	
 	DMA2_Stream4->CR |= ((1<<4) | (1<<2));  // enable transfer complete interrupt and transfer error interrupt 
 	DMA2_Stream4->CR |= (1<<0); // enable DMA stream
 
-
 	ADC1->CR2 |= (1 << 0); // enable ADC
 
 	// may need to move following to timer interrupt handler
-	ADC1->CR2 &= ~(1<<8); // reset DMA
-	ADC1->CR2 |= (1 << 8); //enables DMA 
+	//ADC1->CR2 &= ~(1<<8); // reset DMA
+	//ADC1->CR2 |= (1 << 8); //enables DMA 
 	//ADC1->CR2 |= (1 << 30);
 
 	int i;
+	double vout;
 	while (1)
 	{
 		osEventFlagsWait(evt_id, 8, osFlagsWaitAll, osWaitForever);
-		for (i = 0; i < BUFFER_SIZE; i++)
+		for (i = 0; i < NUM_SERVO; i++)
 		{
-			vout = (buffer[i] * 3.3) / 4096;
+			vout = (adc_vals[i] * 3.3) / 4096;
 			if (vout > 4095) vout = 4095;
 			voltages[i] = vout;
+			uart_buffer[i] = map(adc_vals[i], IN_MIN, IN_MAX, OUT_MIN, OUT_MAX);;
+
 		}
 		osEventFlagsSet(evt_id, 3);
 	}
@@ -116,12 +120,10 @@ __NO_RETURN void ADC_thread(void *argument)
 
 void TIM5_IRQHandler(void){ 
 	TIM5->SR = ~(1 << 0);
-	//ADC1->SR = 0;
+	// reset DMA every time or else doesn't work
 	ADC1->CR2 &= ~(1<<8); // reset DMA
 	ADC1->CR2 |= (1 << 8); //enables DMA 
 	ADC1->CR2 |= (1 << 30); // start conversion
-	
-			
 }
 
 __NO_RETURN void TIM_thread(void *argument)
@@ -142,7 +144,7 @@ __NO_RETURN void TIM_thread(void *argument)
 
 	while(1)
 	{
-		osThreadYield();
+		osThreadExit();
 	}
 }
 
@@ -170,7 +172,9 @@ __NO_RETURN void UART_thread(void *argument)
 	
 	while(1)
 	{
-		Driver_USART1.Send(buffer, UART_ITEM_COUNT);
+		// why?
+		osEventFlagsWait(evt_id, 1, osFlagsWaitAll, osWaitForever);
+		Driver_USART1.Send(uart_buffer, NUM_SERVO * 2);
 		osEventFlagsWait(evt_id, 5, osFlagsWaitAll, osWaitForever);
 		
 	}
@@ -180,14 +184,17 @@ __NO_RETURN void LCD_thread(void *argument)
 {
 	char string[50];
 	char string2[50];
+	char string3[50];
 
 	while(1)
 	{
 		osEventFlagsWait(evt_id, 2, osFlagsWaitAny, osWaitForever);
-		sprintf(string, "%.3fV %.3fV", voltages[0], voltages[1]);
-		BSP_LCD_DisplayStringAt(0, 300, string, CENTER_MODE);
-		sprintf(string2, "0x%04x%04x%04x%04x%04x", buffer[0], buffer[1], buffer[2], buffer[3], buffer[4]);
-		BSP_LCD_DisplayStringAt(0, 500, string2, CENTER_MODE);
+		sprintf(string, "%.3fV %.3fV %.3fV %.3fV %.3fV", voltages[0], voltages[1], voltages[2], voltages[3], voltages[4]);
+		BSP_LCD_DisplayStringAt(0, 100, (uint8_t *) string, CENTER_MODE);
+		sprintf(string2, "0x%04x%04x%04x%04x%04x", adc_vals[0], adc_vals[1], adc_vals[2], adc_vals[3], adc_vals[4]);
+		BSP_LCD_DisplayStringAt(0, 300, (uint8_t *) string2, CENTER_MODE);
+		sprintf(string3, "%d %d %d %d %d", uart_buffer[0], uart_buffer[1], uart_buffer[2], uart_buffer[3], uart_buffer[4]);
+		BSP_LCD_DisplayStringAt(0, 500, (uint8_t *) string3, CENTER_MODE);
 	}
 }
 
@@ -207,9 +214,9 @@ int main(void)
 	osKernelInitialize();
 	evt_id = osEventFlagsNew(NULL);
 	thrd_id1 = osThreadNew(UART_thread, NULL, NULL);
-	thrd_id2 = osThreadNew(LCD_thread, NULL, NULL);
+	thrd_id2 = osThreadNew(LCD_thread, NULL, &thrd2_attr);
 	thrd_id4 = osThreadNew(TIM_thread, NULL, NULL);
-	thrd_id3 = osThreadNew(ADC_thread, NULL, NULL);
+	thrd_id3 = osThreadNew(ADCDMA_thread, NULL, NULL);
 	
 	osKernelStart();
 
