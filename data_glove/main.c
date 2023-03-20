@@ -12,7 +12,7 @@
 
 void SystemClock_Config(void);
 extern ARM_DRIVER_USART Driver_USART1;
-int map(double x, double in_min, double in_max, double out_min, double out_max);
+uint16_t map(double x, double in_min, double in_max, double out_min, double out_max);
 void TIM5_IRQHandler(void);
 void LCD_thread(void *argument) __NO_RETURN;
 void UART_thread(void *argument) __NO_RETURN;
@@ -24,6 +24,8 @@ void DMA2_Stream4_IRQHandler(void);
 static volatile uint16_t adc_vals[NUM_SERVO] = {0};
 static unsigned short uart_buffer[NUM_SERVO] = {0};
 static double voltages[NUM_SERVO] = {0};
+
+uint16_t num;
 
 osEventFlagsId_t evt_id;
 osThreadId_t thrd_id1, thrd_id2, thrd_id3, thrd_id4;
@@ -131,9 +133,9 @@ __NO_RETURN void TIM_thread(void *argument)
 	RCC->AHB1ENR |= (1 << 0); // Activate GPIOA
 	RCC->APB1ENR |= (1 << 3); //Activate timer 5
 
-	// 180Hz timer
+	// 108MHz clk
 	TIM5->PSC = 899;
-	TIM5->ARR = 59999; // 1 Hz
+	TIM5->ARR = 59999; // 2 Hz
 	//TIM5->PSC = 9;
 	//TIM5->ARR = 59999;
 	// 108M/(9*60000) = 180Hz
@@ -193,14 +195,17 @@ __NO_RETURN void LCD_thread(void *argument)
 		BSP_LCD_DisplayStringAt(0, 100, (uint8_t *) string, CENTER_MODE);
 		sprintf(string2, "0x%04x%04x%04x%04x%04x", adc_vals[0], adc_vals[1], adc_vals[2], adc_vals[3], adc_vals[4]);
 		BSP_LCD_DisplayStringAt(0, 300, (uint8_t *) string2, CENTER_MODE);
-		sprintf(string3, "%d %d %d %d %d", uart_buffer[0], uart_buffer[1], uart_buffer[2], uart_buffer[3], uart_buffer[4]);
+		sprintf(string3, "%04d %04d %04d %04d %04d", uart_buffer[0], uart_buffer[1], uart_buffer[2], uart_buffer[3], uart_buffer[4]);
 		BSP_LCD_DisplayStringAt(0, 500, (uint8_t *) string3, CENTER_MODE);
 	}
 }
 
-int map(double x, double in_min, double in_max, double out_min, double out_max)
+uint16_t map(double x, double in_min, double in_max, double out_min, double out_max)
 {
-	return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+	num = ((x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min) / 10;
+	if (num < 50) num = 50;
+	if (num > 250) num = 250;
+	return  num * 10;
 }
 
 int main(void)
