@@ -69,12 +69,15 @@ __NO_RETURN void LCD_thread(void *argument)
 {
 	
 	char string[50];
+	char string2[50];
 	
 	while(1)
 	{
 		osEventFlagsWait(evt_id, 2, osFlagsWaitAny, osWaitForever);
 		sprintf(string, "0x%04x%04x%04x%04x%04x", msg_send[0], msg_send[1], msg_send[2], msg_send[3],msg_send[4]);
 		BSP_LCD_DisplayStringAt(0, 300, (uint8_t *) string, CENTER_MODE);
+		sprintf(string2, "%04d %04d %04d %04d %04d", msg_send[0], msg_send[1], msg_send[2], msg_send[3],msg_send[4]);
+		BSP_LCD_DisplayStringAt(0, 500, (uint8_t *) string2, CENTER_MODE);
 	}
 }
 
@@ -128,7 +131,7 @@ __NO_RETURN void SERVO_thread(void *argument)
 		for (j = 0; j < NUM_SERVO; j++)
 		{
 			if (msg_receive[j] == 0) continue;
-			else servo(j, msg_receive[j]);
+			//else servo(j, msg_receive[j]);
 		}
 	}
 }
