@@ -69,8 +69,8 @@ static DMA2D_HandleTypeDef hDma2dHandler;
 static uint32_t            ActiveLayer = 0;
 static LCD_DrawPropTypeDef DrawProp[MAX_LAYER_NUMBER];
 
-static void DrawChar(uint16_t Xpos, uint16_t Ypos, const uint8_t *c);
-static void FillTriangle(uint16_t x1, uint16_t x2, uint16_t x3, uint16_t y1, uint16_t y2, uint16_t y3);
+static void DrawChar(int16_t Xpos, int16_t Ypos, const uint8_t *c);
+static void FillTriangle(int16_t x1, int16_t x2, int16_t x3, int16_t y1, int16_t y2, int16_t y3);
 static void LL_FillBuffer(uint32_t LayerIndex, void *pDst, uint32_t xSize, uint32_t ySize, uint32_t OffLine, uint32_t ColorIndex);
 static void LL_ConvertLineToARGB8888(void * pSrc, void *pDst, uint32_t xSize, uint32_t ColorMode);
 
@@ -123,7 +123,7 @@ uint8_t BSP_LCD_Init(void)
   //HAL_GPIO_WritePin(LCD_DISP_GPIO_PORT, LCD_DISP_PIN, GPIO_PIN_SET);
 
   /* Assert backlight LCD_BL_CTRL pin */
-  HAL_GPIO_WritePin(LCD_BL_CTRL_GPIO_PORT, LCD_BL_CTRL_PIN, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(LCD_BL_CTRL_GPIO_PORT, LCD_BL_CTRL_PIN, GPIO_PIN_RESET);
 
 #if !defined(DATA_IN_ExtSDRAM)
   /* Initialize the SDRAM */
@@ -140,7 +140,7 @@ uint8_t BSP_LCD_Init(void)
 	//__HAL_LTDC_LAYER_ENABLE(&hLtdcHandler, 1);
 	HAL_LTDC_SetAlpha(&hLtdcHandler, 0, 1);
 	
-	BSP_LCD_DisplayOn();
+	//BSP_LCD_DisplayOn();
 	BSP_LCD_SelectLayer(0);
   
   return LCD_OK;
@@ -532,7 +532,7 @@ sFONT *BSP_LCD_GetFont(void)
   * @param  Ypos: Y position 
   * @retval RGB pixel color
   */
-uint32_t BSP_LCD_ReadPixel(uint16_t Xpos, uint16_t Ypos)
+uint32_t BSP_LCD_ReadPixel(int16_t Xpos, int16_t Ypos)
 {
   uint32_t ret = 0;
   
@@ -598,7 +598,7 @@ void BSP_LCD_ClearStringLine(uint32_t Line)
   *           This parameter must be a number between Min_Data = 0x20 and Max_Data = 0x7E 
   * @retval None
   */
-void BSP_LCD_DisplayChar(uint16_t Xpos, uint16_t Ypos, uint8_t Ascii)
+void BSP_LCD_DisplayChar(int16_t Xpos, int16_t Ypos, uint8_t Ascii)
 {
   DrawChar(Xpos, Ypos, &DrawProp[ActiveLayer].pFont->table[(Ascii-' ') *\
     DrawProp[ActiveLayer].pFont->Height * ((DrawProp[ActiveLayer].pFont->Width + 7) / 8)]);
@@ -616,7 +616,7 @@ void BSP_LCD_DisplayChar(uint16_t Xpos, uint16_t Ypos, uint8_t Ascii)
   *            @arg  LEFT_MODE   
   * @retval None
   */
-void BSP_LCD_DisplayStringAt(uint16_t Xpos, uint16_t Ypos, uint8_t *Text, Text_AlignModeTypdef Mode)
+void BSP_LCD_DisplayStringAt(int16_t Xpos, int16_t Ypos, uint8_t *Text, Text_AlignModeTypdef Mode)
 {
   uint16_t ref_column = 1, i = 0;
   uint32_t size = 0, xsize = 0; 
@@ -689,7 +689,7 @@ void BSP_LCD_DisplayStringAtLine(uint16_t Line, uint8_t *ptr)
   * @param  Length: Line length
   * @retval None
   */
-void BSP_LCD_DrawHLine(uint16_t Xpos, uint16_t Ypos, uint16_t Length)
+void BSP_LCD_DrawHLine(int16_t Xpos, int16_t Ypos, uint16_t Length)
 {
   uint32_t  Xaddress = 0;
   
@@ -714,7 +714,7 @@ void BSP_LCD_DrawHLine(uint16_t Xpos, uint16_t Ypos, uint16_t Length)
   * @param  Length: Line length
   * @retval None
   */
-void BSP_LCD_DrawVLine(uint16_t Xpos, uint16_t Ypos, uint16_t Length)
+void BSP_LCD_DrawVLine(int16_t Xpos, int16_t Ypos, uint16_t Length)
 {
   uint32_t  Xaddress = 0;
   
@@ -740,7 +740,7 @@ void BSP_LCD_DrawVLine(uint16_t Xpos, uint16_t Ypos, uint16_t Length)
   * @param  y2: Point 2 Y position
   * @retval None
   */
-void BSP_LCD_DrawLine(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2)
+void BSP_LCD_DrawLine(int16_t x1, int16_t y1, int16_t x2, int16_t y2)
 {
   int16_t deltax = 0, deltay = 0, x = 0, y = 0, xinc1 = 0, xinc2 = 0, 
   yinc1 = 0, yinc2 = 0, den = 0, num = 0, num_add = 0, num_pixels = 0, 
@@ -815,7 +815,7 @@ void BSP_LCD_DrawLine(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2)
   * @param  Height: Rectangle height
   * @retval None
   */
-void BSP_LCD_DrawRect(uint16_t Xpos, uint16_t Ypos, uint16_t Width, uint16_t Height)
+void BSP_LCD_DrawRect(int16_t Xpos, int16_t Ypos, uint16_t Width, uint16_t Height)
 {
   /* Draw horizontal lines */
   BSP_LCD_DrawHLine(Xpos, Ypos, Width);
@@ -833,7 +833,7 @@ void BSP_LCD_DrawRect(uint16_t Xpos, uint16_t Ypos, uint16_t Width, uint16_t Hei
   * @param  Radius: Circle radius
   * @retval None
   */
-void BSP_LCD_DrawCircle(uint16_t Xpos, uint16_t Ypos, uint16_t Radius)
+void BSP_LCD_DrawCircle(int16_t Xpos, int16_t Ypos, uint16_t Radius)
 {
   int32_t   decision;    /* Decision Variable */ 
   uint32_t  current_x;   /* Current X Value */
@@ -941,7 +941,7 @@ void BSP_LCD_DrawEllipse(int Xpos, int Ypos, int XRadius, int YRadius)
   * @param  RGB_Code: Pixel color in ARGB mode (8-8-8-8)
   * @retval None
   */
-void BSP_LCD_DrawPixel(uint16_t Xpos, uint16_t Ypos, uint32_t RGB_Code)
+void BSP_LCD_DrawPixel(int16_t Xpos, int16_t Ypos, uint32_t RGB_Code)
 {
   /* Write data value to all SDRAM memory */
   if(hLtdcHandler.LayerCfg[ActiveLayer].PixelFormat == LTDC_PIXEL_FORMAT_RGB565)
@@ -961,7 +961,7 @@ void BSP_LCD_DrawPixel(uint16_t Xpos, uint16_t Ypos, uint32_t RGB_Code)
   * @param  pbmp: Pointer to Bmp picture address in the internal Flash
   * @retval None
   */
-void BSP_LCD_DrawBitmap(uint32_t Xpos, uint32_t Ypos, uint8_t *pbmp)
+void BSP_LCD_DrawBitmap(int32_t Xpos, int32_t Ypos, uint8_t *pbmp)
 {
   uint32_t index = 0, width = 0, height = 0, bit_pixel = 0;
   uint32_t address;
@@ -1019,7 +1019,7 @@ void BSP_LCD_DrawBitmap(uint32_t Xpos, uint32_t Ypos, uint8_t *pbmp)
   * @param  Height: Rectangle height
   * @retval None
   */
-void BSP_LCD_FillRect(uint16_t Xpos, uint16_t Ypos, uint16_t Width, uint16_t Height)
+void BSP_LCD_FillRect(int16_t Xpos, int16_t Ypos, uint16_t Width, uint16_t Height)
 {
   uint32_t  x_address = 0;
   
@@ -1046,7 +1046,7 @@ void BSP_LCD_FillRect(uint16_t Xpos, uint16_t Ypos, uint16_t Width, uint16_t Hei
   * @param  Radius: Circle radius
   * @retval None
   */
-void BSP_LCD_FillCircle(uint16_t Xpos, uint16_t Ypos, uint16_t Radius)
+void BSP_LCD_FillCircle(int16_t Xpos, int16_t Ypos, uint16_t Radius)
 {
   int32_t  decision;     /* Decision Variable */ 
   uint32_t  current_x;   /* Current X Value */
@@ -1197,7 +1197,7 @@ void BSP_LCD_DisplayOn(void)
   /* Display On */
   __HAL_LTDC_ENABLE(&hLtdcHandler);
   //HAL_GPIO_WritePin(LCD_DISP_GPIO_PORT, LCD_DISP_PIN, GPIO_PIN_SET);        /* Assert LCD_DISP pin */
-  HAL_GPIO_WritePin(LCD_BL_CTRL_GPIO_PORT, LCD_BL_CTRL_PIN, GPIO_PIN_SET);  /* Assert LCD_BL_CTRL pin */
+  HAL_GPIO_WritePin(LCD_BL_CTRL_GPIO_PORT, LCD_BL_CTRL_PIN, GPIO_PIN_RESET);  /* Assert LCD_BL_CTRL pin */
 }
 
 /**
@@ -1209,7 +1209,7 @@ void BSP_LCD_DisplayOff(void)
   /* Display Off */
   __HAL_LTDC_DISABLE(&hLtdcHandler);
   //HAL_GPIO_WritePin(LCD_DISP_GPIO_PORT, LCD_DISP_PIN, GPIO_PIN_RESET);      /* De-assert LCD_DISP pin */
-  HAL_GPIO_WritePin(LCD_BL_CTRL_GPIO_PORT, LCD_BL_CTRL_PIN, GPIO_PIN_RESET);/* De-assert LCD_BL_CTRL pin */
+  HAL_GPIO_WritePin(LCD_BL_CTRL_GPIO_PORT, LCD_BL_CTRL_PIN, GPIO_PIN_SET);/* De-assert LCD_BL_CTRL pin */
 }
 
 /**
@@ -1414,7 +1414,7 @@ __weak void BSP_LCD_ClockConfig(LTDC_HandleTypeDef *hltdc, void *Params)
   * @param  c: Pointer to the character data
   * @retval None
   */
-static void DrawChar(uint16_t Xpos, uint16_t Ypos, const uint8_t *c)
+static void DrawChar(int16_t Xpos, int16_t Ypos, const uint8_t *c)
 {
   uint32_t i = 0, j = 0;
   uint16_t height, width;
@@ -1473,7 +1473,7 @@ static void DrawChar(uint16_t Xpos, uint16_t Ypos, const uint8_t *c)
   * @param  y3: Point 3 Y position
   * @retval None
   */
-static void FillTriangle(uint16_t x1, uint16_t x2, uint16_t x3, uint16_t y1, uint16_t y2, uint16_t y3)
+static void FillTriangle(int16_t x1, int16_t x2, int16_t x3, int16_t y1, int16_t y2, int16_t y3)
 { 
   int16_t deltax = 0, deltay = 0, x = 0, y = 0, xinc1 = 0, xinc2 = 0, 
   yinc1 = 0, yinc2 = 0, den = 0, num = 0, num_add = 0, num_pixels = 0,

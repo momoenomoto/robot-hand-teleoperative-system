@@ -15,11 +15,11 @@ void UART_thread(void *argument) __NO_RETURN;
 void TIM_thread(void *argument) __NO_RETURN;
 void ADC_thread(void *argument) __NO_RETURN;
 void UART_handler(uint32_t event);
-void ADC_IRQHandler(void);
-void DMA2_Stream0_IRQHandler(void);
+void DMA2_Stream4_IRQHandler(void);
 
 static volatile uint16_t buffer[BUFFER_SIZE] = {0};
-//static uint32_t RxData[50] = {0};
+static double voltages[BUFFER_SIZE] = {0};
+
 static double vout, result;
 
 osEventFlagsId_t evt_id;
@@ -32,31 +32,18 @@ osThreadId_t thrd_id1, thrd_id2, thrd_id3, thrd_id4;
 //   .priority  = osPriorityLow,
 // };
 
-void DMA2_Stream0_IRQHandler(void)
+void DMA2_Stream4_IRQHandler(void)
 {
-	char string3[50];
-	if (DMA2->LISR & (1<<5)) // TCIF0
+	if (DMA2->HISR & (1<<5)) // TCIF0
 	{
-		DMA2->LIFCR |= (1<<5); // set CTCIF
-		sprintf(string3, "0x%04x%04x%04x%04x%04x", buffer[0], buffer[1], buffer[2], buffer[3], buffer[4]);
-		BSP_LCD_DisplayStringAt(0, 700, string3, CENTER_MODE);
-		osEventFlagsSet(evt_id, 3); // will need to add 8 later on.
+		DMA2->HIFCR |= (1<<5); // set CTCIF
+		osEventFlagsSet(evt_id, 11); 
 	}
-	if (DMA2->LISR & (1<<3))
+	if (DMA2->HISR & (1<<3))
 	{
-		DMA2->LIFCR |= (1<<3);
+		DMA2->HIFCR |= (1<<3);
 		
 	}
-}
-
-void ADC_IRQHandler(void)
-{
-	/*
-	if (ADC1->SR & (1<<1))
-	{		
-		result = ADC1->DR;
-		osEventFlagsSet(evt_id, 8);
-	}*/
 }
 
 __NO_RETURN void ADC_thread(void *argument)
@@ -85,23 +72,23 @@ __NO_RETURN void ADC_thread(void *argument)
 	//NVIC_EnableIRQ(ADC_IRQn);
 	//ADC1->CR2 |= (1 << 0); // enable ADC
 	
+	DMA2_Stream4->CR &= ~(4<<25); // channel 0 selected for stream
 	
-	DMA2_Stream0->CR &= ~(3<<6); // data direction peripheral to memory
-	DMA2_Stream0->CR &= ~(3<<9); // fixed peripheral address pointer
-	DMA2_Stream0->CR |= (1<<10) | (1<<11) |(1<<13)| (2<<16); // memory address increment, 16 bit mem data, 16 bit peripheral data, high priority 
-	DMA2_Stream0->CR &= ~(1<<9); // no peripheral address inc
-	DMA2_Stream0->CR |= (1<<8); // circ mode enabled
-	DMA2_Stream0->CR &= ~(7<<25); // channel 0 selected for stream
+	DMA2_Stream4->CR &= ~(3<<6); // data direction peripheral to memory
+	DMA2_Stream4->CR &= ~(3<<9); // fixed peripheral address pointer
+	DMA2_Stream4->CR |= ((1<<10) | (1<<11) |(1<<13)| (2<<16)); // memory address increment, 16 bit mem data, 16 bit peripheral data, high priority 
+	DMA2_Stream4->CR &= ~(1<<9); // no peripheral address inc
+	DMA2_Stream4->CR |= (1<<8); // circ mode enabled
 
-	DMA2_Stream0->NDTR = 2; // 2 channels for dma transfer size
-	DMA2_Stream0->PAR = (uint32_t) &(ADC1->DR); // source address
-	DMA2_Stream0->M0AR = (uint32_t) &buffer[0]; // destination address
+	DMA2_Stream4->NDTR = 2; // 2 channels for dma transfer size
+	DMA2_Stream4->PAR = (uint32_t) &(ADC1->DR); // source address
+	DMA2_Stream4->M0AR = (uint32_t) &buffer[0]; // destination address
 	
-	NVIC_SetPriority(DMA2_Stream0_IRQn, 1); // DMA IRQ lower priority than ADC IRQ.
-	NVIC_EnableIRQ(DMA2_Stream0_IRQn);
+	NVIC_SetPriority(DMA2_Stream4_IRQn, 1); 
+	NVIC_EnableIRQ(DMA2_Stream4_IRQn);
 	
-	DMA2_Stream0->CR |= ((1<<4) | (1<<2));  // enable transfer complete interrupt and transfer error interrupt 
-	DMA2_Stream0->CR |= (1<<0); // enable DMA stream
+	DMA2_Stream4->CR |= ((1<<4) | (1<<2));  // enable transfer complete interrupt and transfer error interrupt 
+	DMA2_Stream4->CR |= (1<<0); // enable DMA stream
 
 
 	ADC1->CR2 |= (1 << 0); // enable ADC
@@ -109,14 +96,18 @@ __NO_RETURN void ADC_thread(void *argument)
 	// may need to move following to timer interrupt handler
 	ADC1->CR2 &= ~(1<<8); // reset DMA
 	ADC1->CR2 |= (1 << 8); //enables DMA 
+	//ADC1->CR2 |= (1 << 30);
 
+	int i;
 	while (1)
 	{
 		osEventFlagsWait(evt_id, 8, osFlagsWaitAll, osWaitForever);
-		vout = (result * 3.3) / 4096;
-		if (vout > 4095)
-			vout = 4095;
-		buffer[0] = (uint16_t) (vout * 1000); 
+		for (i = 0; i < BUFFER_SIZE; i++)
+		{
+			vout = (buffer[i] * 3.3) / 4096;
+			if (vout > 4095) vout = 4095;
+			voltages[i] = vout;
+		}
 		osEventFlagsSet(evt_id, 3);
 	}
 	
@@ -126,11 +117,10 @@ __NO_RETURN void ADC_thread(void *argument)
 void TIM5_IRQHandler(void){ 
 	TIM5->SR = ~(1 << 0);
 	//ADC1->SR = 0;
-
+	ADC1->CR2 &= ~(1<<8); // reset DMA
+	ADC1->CR2 |= (1 << 8); //enables DMA 
 	ADC1->CR2 |= (1 << 30); // start conversion
 	
-	
-	//while(!(ADC1->SR & (1<<1))); // wait while conversion not complete
 			
 }
 
@@ -194,7 +184,7 @@ __NO_RETURN void LCD_thread(void *argument)
 	while(1)
 	{
 		osEventFlagsWait(evt_id, 2, osFlagsWaitAny, osWaitForever);
-		sprintf(string, "%.3fV", vout);
+		sprintf(string, "%.3fV %.3fV", voltages[0], voltages[1]);
 		BSP_LCD_DisplayStringAt(0, 300, string, CENTER_MODE);
 		sprintf(string2, "0x%04x%04x%04x%04x%04x", buffer[0], buffer[1], buffer[2], buffer[3], buffer[4]);
 		BSP_LCD_DisplayStringAt(0, 500, string2, CENTER_MODE);
@@ -247,7 +237,6 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLM = 8;
   RCC_OscInitStruct.PLL.PLLN = 432;  
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = 9;
   HAL_RCC_OscConfig(&RCC_OscInitStruct);
 
   /* activate the OverDrive to reach the 216 Mhz Frequency */
@@ -262,4 +251,5 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;  
   HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_7);
 }
+
 
