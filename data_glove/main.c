@@ -140,7 +140,7 @@ __NO_RETURN void TIM_thread(void *argument)
 	RCC->APB1ENR |= (1 << 3); //Activate timer 5
 
 	// 108MHz clk
-	TIM5->PSC = 299;
+	TIM5->PSC = 59; // 15Hz
 	TIM5->ARR = 59999; 
 	//TIM5->PSC = 9;
 	//TIM5->ARR = 59999;
