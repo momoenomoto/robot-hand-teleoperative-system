@@ -229,7 +229,8 @@ uint16_t map(double x, double in_min, double in_max, double out_min, double out_
 	num = ((x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min);
 	if (num < 500) num = 500;
 	if (num > 2500) num = 2500;
-	return  num;
+	num /= 10;
+	return  num * 10;
 }
 
 
