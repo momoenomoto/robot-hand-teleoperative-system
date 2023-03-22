@@ -5,10 +5,10 @@
 #include <stdio.h>
 
 #define NUM_SERVO 5
-#define IN_MIN 0
+#define IN_MIN 1000
 #define IN_MAX 4095
 #define OUT_MIN 500
-#define OUT_MAX 2000
+#define OUT_MAX 2500
 
 void SystemClock_Config(void);
 extern ARM_DRIVER_USART Driver_USART1;
@@ -23,6 +23,7 @@ void DMA2_Stream4_IRQHandler(void);
 
 static volatile uint16_t adc_vals[NUM_SERVO] = {0};
 static unsigned short uart_buffer[NUM_SERVO] = {0};
+static unsigned short old_uart_buffer[NUM_SERVO] = {0};
 static double voltages[NUM_SERVO] = {0};
 
 uint16_t num;
@@ -42,7 +43,7 @@ void DMA2_Stream4_IRQHandler(void)
 	if (DMA2->HISR & (1<<5)) // TCIF0
 	{
 		DMA2->HIFCR |= (1<<5); // set CTCIF
-		osEventFlagsSet(evt_id, 11); 
+		osEventFlagsSet(evt_id, 8); 
 	}
 	if (DMA2->HISR & (1<<3))
 	{
@@ -52,6 +53,10 @@ void DMA2_Stream4_IRQHandler(void)
 
 __NO_RETURN void ADCDMA_thread(void *argument)
 {
+	int i;
+	double vout;
+	uint16_t servo_val_mapped_rounded;
+	
 	RCC->AHB1ENR |= (1 << 22); // Activate DMA2
 	RCC->AHB1ENR |= (1 << 0); // Activate GPIOA
 	RCC->APB2ENR |= (1 << 8); // Activate ADC1
@@ -63,7 +68,7 @@ __NO_RETURN void ADCDMA_thread(void *argument)
 	ADC1->CR1 |= (1<<8); // enable scan mode
 	ADC1->CR2 &= ~(1<<1); // cont mode off
 
-
+	// no need to generate ADC interrupts anymore
 	//ADC1->CR1 |= (1 << 5); // EOCIE bit set, generate interrupt
 	
 	//ADC1->CR1 &= ~(1<<24); // 12 bit adc
@@ -96,13 +101,6 @@ __NO_RETURN void ADCDMA_thread(void *argument)
 
 	ADC1->CR2 |= (1 << 0); // enable ADC
 
-	// may need to move following to timer interrupt handler
-	//ADC1->CR2 &= ~(1<<8); // reset DMA
-	//ADC1->CR2 |= (1 << 8); //enables DMA 
-	//ADC1->CR2 |= (1 << 30);
-
-	int i;
-	double vout;
 	while (1)
 	{
 		osEventFlagsWait(evt_id, 8, osFlagsWaitAll, osWaitForever);
@@ -111,8 +109,14 @@ __NO_RETURN void ADCDMA_thread(void *argument)
 			vout = (adc_vals[i] * 3.3) / 4096;
 			if (vout > 4095) vout = 4095;
 			voltages[i] = vout;
-			uart_buffer[i] = map(adc_vals[i], IN_MIN, IN_MAX, OUT_MIN, OUT_MAX);;
-
+			servo_val_mapped_rounded = map(adc_vals[i], IN_MIN, IN_MAX, OUT_MIN, OUT_MAX);
+			if (servo_val_mapped_rounded != old_uart_buffer[i])
+			{
+				uart_buffer[i] = servo_val_mapped_rounded;
+				old_uart_buffer[i] = uart_buffer[i];
+			} else {
+				uart_buffer[i] = 0;
+			}
 		}
 		osEventFlagsSet(evt_id, 3);
 	}
@@ -174,19 +178,20 @@ __NO_RETURN void UART_thread(void *argument)
 	
 	while(1)
 	{
-		// why?
 		osEventFlagsWait(evt_id, 1, osFlagsWaitAll, osWaitForever);
 		Driver_USART1.Send(uart_buffer, NUM_SERVO * 2);
-		osEventFlagsWait(evt_id, 5, osFlagsWaitAll, osWaitForever);
+		osEventFlagsWait(evt_id, 4, osFlagsWaitAll, osWaitForever);
 		
 	}
 }
 
 __NO_RETURN void LCD_thread(void *argument)
 {
-	char string[50];
-	char string2[50];
-	char string3[50];
+	char string[50], string2[50], string3[50], string4[50];
+	
+	BSP_LCD_Init();
+	BSP_LCD_Clear(LCD_COLOR_BLUE);
+	BSP_LCD_DisplayStringAt(0, 0, (unsigned char *) "Test LCD", CENTER_MODE);
 
 	while(1)
 	{
@@ -195,26 +200,24 @@ __NO_RETURN void LCD_thread(void *argument)
 		BSP_LCD_DisplayStringAt(0, 100, (uint8_t *) string, CENTER_MODE);
 		sprintf(string2, "0x%04x%04x%04x%04x%04x", adc_vals[0], adc_vals[1], adc_vals[2], adc_vals[3], adc_vals[4]);
 		BSP_LCD_DisplayStringAt(0, 300, (uint8_t *) string2, CENTER_MODE);
-		sprintf(string3, "%04d %04d %04d %04d %04d", uart_buffer[0], uart_buffer[1], uart_buffer[2], uart_buffer[3], uart_buffer[4]);
+		sprintf(string3, "sent: %04d %04d %04d %04d %04d", uart_buffer[0], uart_buffer[1], uart_buffer[2], uart_buffer[3], uart_buffer[4]);
 		BSP_LCD_DisplayStringAt(0, 500, (uint8_t *) string3, CENTER_MODE);
 	}
 }
 
 uint16_t map(double x, double in_min, double in_max, double out_min, double out_max)
 {
-	num = ((x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min) / 10;
-	if (num < 50) num = 50;
-	if (num > 250) num = 250;
+	num = ((x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min);
+	if (num < 500) num = 500;
+	if (num > 2500) num = 2500;
+	num /= 10; // take out last digit
 	return  num * 10;
 }
+
 
 int main(void)
 {
 	SystemClock_Config();
-
-	BSP_LCD_Init();
-	BSP_LCD_Clear(LCD_COLOR_BLUE);
-	BSP_LCD_DisplayStringAt(0, 0, (unsigned char *) "Test LCD", CENTER_MODE);
 	
 	osKernelInitialize();
 	evt_id = osEventFlagsNew(NULL);
