@@ -4,13 +4,14 @@
 #include "Driver_USART.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define NUM_SERVO 5
-#define IN_MIN 1000
+#define IN_MIN 1500
 #define IN_MAX 4095
 #define OUT_MIN 500
 #define OUT_MAX 2500
-#define THRESHOLD 100
+#define THRESHOLD 200
 
 void SystemClock_Config(void);
 extern ARM_DRIVER_USART Driver_USART1;
@@ -102,7 +103,10 @@ __NO_RETURN void ADCDMA_thread(void *argument)
 	DMA2_Stream4->CR |= (1<<0); // enable DMA stream
 
 	ADC1->CR2 |= (1 << 0); // enable ADC
-
+	
+	uint16_t new_val;
+	double alpha = 0.7;
+	
 	while (1)
 	{
 		osEventFlagsWait(evt_id, 8, osFlagsWaitAll, osWaitForever);
@@ -112,6 +116,14 @@ __NO_RETURN void ADCDMA_thread(void *argument)
 			if (vout > 4095) vout = 4095;
 			voltages[i] = vout;
 			servo_val_mapped_rounded = map(adc_vals[i], IN_MIN, IN_MAX, OUT_MIN, OUT_MAX);
+			
+			//new_val = alpha * servo_val_mapped_rounded + (1-alpha)*old_uart_buffer[i];
+			/*if (abs(new_val - old_uart_buffer[i]) > THRESHOLD) {
+				uart_buffer[i] = new_val;
+				old_uart_buffer[i] = uart_buffer[i];
+			} else {
+				uart_buffer[i] = 0;
+			}*/
 			if (abs(servo_val_mapped_rounded - old_uart_buffer[i]) > THRESHOLD)
 			{
 				uart_buffer[i] = servo_val_mapped_rounded;
@@ -120,7 +132,12 @@ __NO_RETURN void ADCDMA_thread(void *argument)
 				uart_buffer[i] = 0;
 			}
 		}
-		osEventFlagsSet(evt_id, 3);
+		if (!(memcmp(uart_buffer, (int[NUM_SERVO]){0}, sizeof(uart_buffer)) == 0))
+		{
+			osEventFlagsSet(evt_id, 3);
+		} else {
+			osEventFlagsSet(evt_id, 2);
+		}
 	}
 	
 }
@@ -212,8 +229,7 @@ uint16_t map(double x, double in_min, double in_max, double out_min, double out_
 	num = ((x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min);
 	if (num < 500) num = 500;
 	if (num > 2500) num = 2500;
-	num /= 100; // take out last digit
-	return  num * 100;
+	return  num;
 }
 
 
