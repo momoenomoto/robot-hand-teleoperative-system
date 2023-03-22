@@ -71,6 +71,10 @@ __NO_RETURN void LCD_thread(void *argument)
 	char string[50];
 	char string2[50];
 	
+	BSP_LCD_Init();
+	BSP_LCD_Clear(LCD_COLOR_BLUE);
+	BSP_LCD_DisplayStringAt(0, 0, (unsigned char *) "Test LCD", CENTER_MODE);
+	
 	while(1)
 	{
 		osEventFlagsWait(evt_id, 2, osFlagsWaitAny, osWaitForever);
@@ -125,21 +129,17 @@ __NO_RETURN void SERVO_thread(void *argument)
 	while(1)
 	{
 		osMessageQueueGet(q_id, &msg_receive, NULL, osWaitForever);   // wait for message
-		//sprintf(string2, "0x%04x%04x%04x%04x%04x", msg_receive[0], msg_receive[1], msg_receive[2], msg_receive[3], msg_receive[4]);
-		//BSP_LCD_DisplayStringAt(0, 400, string2, CENTER_MODE);
 		
 		for (j = 0; j < NUM_SERVO; j++)
 		{
 			if (msg_receive[j] == 0) continue;
-			//else servo(j, msg_receive[j]);
+			else servo(j, msg_receive[j]);
 		}
 	}
 }
 
 void servo(int id, int val)
 {
-	//int ccr;
-	//ccr = deg_convert(deg);
 	switch(id){
 		case 0:
 		{
@@ -173,18 +173,14 @@ void servo(int id, int val)
 int main(void)
 {
 	SystemClock_Config();
-	
-	BSP_LCD_Init();
-	BSP_LCD_Clear(LCD_COLOR_BLUE);
-	BSP_LCD_DisplayStringAt(0, 0, (unsigned char *) "Test LCD", CENTER_MODE);
 
 	
 	osKernelInitialize();
 	evt_id = osEventFlagsNew(NULL);
 	q_id = osMessageQueueNew(MSGQUEUE_OBJECTS, sizeof(msg_send), NULL);
-	thrd_id1 = osThreadNew(UART_thread, NULL, NULL); // high priority
+	thrd_id1 = osThreadNew(UART_thread, NULL, &thrd1_attr); // high priority
 	thrd_id2 = osThreadNew(LCD_thread, NULL, &thrd2_attr); // low priority
-	thrd_id3 = osThreadNew(SERVO_thread, NULL, NULL); 
+	thrd_id3 = osThreadNew(SERVO_thread, NULL, &thrd1_attr); // also high priority
 	
 	osKernelStart();
 
