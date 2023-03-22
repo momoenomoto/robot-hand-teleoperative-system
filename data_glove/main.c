@@ -3,12 +3,14 @@
 #include "Open746i_lcd.h"
 #include "Driver_USART.h"
 #include <stdio.h>
+#include <stdlib.h>
 
 #define NUM_SERVO 5
 #define IN_MIN 1000
 #define IN_MAX 4095
 #define OUT_MIN 500
 #define OUT_MAX 2500
+#define THRESHOLD 100
 
 void SystemClock_Config(void);
 extern ARM_DRIVER_USART Driver_USART1;
@@ -110,7 +112,7 @@ __NO_RETURN void ADCDMA_thread(void *argument)
 			if (vout > 4095) vout = 4095;
 			voltages[i] = vout;
 			servo_val_mapped_rounded = map(adc_vals[i], IN_MIN, IN_MAX, OUT_MIN, OUT_MAX);
-			if (servo_val_mapped_rounded != old_uart_buffer[i])
+			if (abs(servo_val_mapped_rounded - old_uart_buffer[i]) > THRESHOLD)
 			{
 				uart_buffer[i] = servo_val_mapped_rounded;
 				old_uart_buffer[i] = uart_buffer[i];
@@ -138,8 +140,8 @@ __NO_RETURN void TIM_thread(void *argument)
 	RCC->APB1ENR |= (1 << 3); //Activate timer 5
 
 	// 108MHz clk
-	TIM5->PSC = 899;
-	TIM5->ARR = 59999; // 2 Hz
+	TIM5->PSC = 299;
+	TIM5->ARR = 59999; 
 	//TIM5->PSC = 9;
 	//TIM5->ARR = 59999;
 	// 108M/(9*60000) = 180Hz
@@ -210,8 +212,8 @@ uint16_t map(double x, double in_min, double in_max, double out_min, double out_
 	num = ((x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min);
 	if (num < 500) num = 500;
 	if (num > 2500) num = 2500;
-	num /= 10; // take out last digit
-	return  num * 10;
+	num /= 100; // take out last digit
+	return  num * 100;
 }
 
 
