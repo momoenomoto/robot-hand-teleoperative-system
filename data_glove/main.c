@@ -7,11 +7,11 @@
 #include <string.h>
 
 #define NUM_SERVO 5
-#define IN_MIN 1500
+#define IN_MIN 100
 #define IN_MAX 4095
 #define OUT_MIN 500
 #define OUT_MAX 2500
-#define THRESHOLD 200
+#define THRESHOLD 70
 
 void SystemClock_Config(void);
 extern ARM_DRIVER_USART Driver_USART1;
@@ -27,6 +27,8 @@ void DMA2_Stream4_IRQHandler(void);
 static volatile uint16_t adc_vals[NUM_SERVO] = {0};
 static unsigned short uart_buffer[NUM_SERVO] = {0};
 static unsigned short old_uart_buffer[NUM_SERVO] = {0};
+static unsigned int sums[NUM_SERVO] = {0};
+static unsigned int pos = 0;
 static double voltages[NUM_SERVO] = {0};
 
 uint16_t num;
@@ -58,7 +60,7 @@ __NO_RETURN void ADCDMA_thread(void *argument)
 {
 	int i;
 	double vout;
-	uint16_t servo_val_mapped_rounded;
+	uint16_t servo_val_mapped;
 	
 	RCC->AHB1ENR |= (1 << 22); // Activate DMA2
 	RCC->AHB1ENR |= (1 << 0); // Activate GPIOA
@@ -72,17 +74,6 @@ __NO_RETURN void ADCDMA_thread(void *argument)
 	ADC1->CR2 &= ~(1<<1); // cont mode off
 
 	// no need to generate ADC interrupts anymore
-	//ADC1->CR1 |= (1 << 5); // EOCIE bit set, generate interrupt
-	
-	//ADC1->CR1 &= ~(1<<24); // 12 bit adc
-	//ADC1->CR2 |= (1<<10); // EOC after each conversion
-	//ADC1->CR2 &= ~(1<<11); // uart_buffer alignment right
-	//ADC1->CR2 |= (1<<9); // continuous DMA
-	
-	//ADC1->SMPR2 |= (3<<0) | (3<<3);
-	//NVIC_SetPriority(ADC_IRQn, 0);
-	//NVIC_EnableIRQ(ADC_IRQn);
-	//ADC1->CR2 |= (1 << 0); // enable ADC
 	
 	DMA2_Stream4->CR &= ~(4<<25); // channel 0 selected for stream
 	
@@ -103,10 +94,7 @@ __NO_RETURN void ADCDMA_thread(void *argument)
 	DMA2_Stream4->CR |= (1<<0); // enable DMA stream
 
 	ADC1->CR2 |= (1 << 0); // enable ADC
-	
-	uint16_t new_val;
-	double alpha = 0.7;
-	
+		
 	while (1)
 	{
 		osEventFlagsWait(evt_id, 8, osFlagsWaitAll, osWaitForever);
@@ -115,22 +103,15 @@ __NO_RETURN void ADCDMA_thread(void *argument)
 			vout = (adc_vals[i] * 3.3) / 4096;
 			if (vout > 4095) vout = 4095;
 			voltages[i] = vout;
-			servo_val_mapped_rounded = map(adc_vals[i], IN_MIN, IN_MAX, OUT_MIN, OUT_MAX);
-			
-			//new_val = alpha * servo_val_mapped_rounded + (1-alpha)*old_uart_buffer[i];
-			/*if (abs(new_val - old_uart_buffer[i]) > THRESHOLD) {
-				uart_buffer[i] = new_val;
-				old_uart_buffer[i] = uart_buffer[i];
-			} else {
-				uart_buffer[i] = 0;
-			}*/
-			if (abs(servo_val_mapped_rounded - old_uart_buffer[i]) > THRESHOLD)
-			{
-				uart_buffer[i] = servo_val_mapped_rounded;
+			servo_val_mapped = map(adc_vals[i], IN_MIN, IN_MAX, OUT_MIN, OUT_MAX);
+						
+			if (abs(servo_val_mapped - old_uart_buffer[i]) > THRESHOLD) {
+				uart_buffer[i] = servo_val_mapped;
 				old_uart_buffer[i] = uart_buffer[i];
 			} else {
 				uart_buffer[i] = 0;
 			}
+
 		}
 		if (!(memcmp(uart_buffer, (int[NUM_SERVO]){0}, sizeof(uart_buffer)) == 0))
 		{
@@ -229,10 +210,10 @@ uint16_t map(double x, double in_min, double in_max, double out_min, double out_
 	num = ((x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min);
 	if (num < 500) num = 500;
 	if (num > 2500) num = 2500;
-	num /= 10;
-	return  num * 10;
+	//num /= 10;
+	//return  num * 10;
+	return num;
 }
-
 
 int main(void)
 {
@@ -240,10 +221,10 @@ int main(void)
 	
 	osKernelInitialize();
 	evt_id = osEventFlagsNew(NULL);
-	thrd_id1 = osThreadNew(UART_thread, NULL, NULL);
+	thrd_id1 = osThreadNew(UART_thread, NULL, &thrd1_attr);
 	thrd_id2 = osThreadNew(LCD_thread, NULL, &thrd2_attr);
-	thrd_id4 = osThreadNew(TIM_thread, NULL, NULL);
-	thrd_id3 = osThreadNew(ADCDMA_thread, NULL, NULL);
+	thrd_id4 = osThreadNew(TIM_thread, NULL, &thrd1_attr);
+	thrd_id3 = osThreadNew(ADCDMA_thread, NULL, &thrd1_attr);
 	
 	osKernelStart();
 
