@@ -7,11 +7,11 @@
 #include <string.h>
 
 #define NUM_SERVO 5
-#define IN_MIN 100
+#define IN_MIN 1000
 #define IN_MAX 4095
-#define OUT_MIN 500
-#define OUT_MAX 2500
-#define THRESHOLD 70
+#define OUT_MIN 1800
+#define OUT_MAX 500
+#define THRESHOLD 100
 
 void SystemClock_Config(void);
 extern ARM_DRIVER_USART Driver_USART1;
@@ -138,11 +138,8 @@ __NO_RETURN void TIM_thread(void *argument)
 	RCC->APB1ENR |= (1 << 3); //Activate timer 5
 
 	// 108MHz clk
-	TIM5->PSC = 59; // 15Hz
-	TIM5->ARR = 59999; 
-	//TIM5->PSC = 9;
-	//TIM5->ARR = 59999;
-	// 108M/(9*60000) = 180Hz
+	TIM5->PSC = 15;
+	TIM5->ARR = 59999;
 	TIM5->CR1 |= (1 << 7) | (1 << 0); // enable counter and arpe bit
 	TIM5->DIER |= (1 << 0); // enable update interrupt
 
@@ -209,9 +206,7 @@ uint16_t map(double x, double in_min, double in_max, double out_min, double out_
 {
 	num = ((x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min);
 	if (num < 500) num = 500;
-	if (num > 2500) num = 2500;
-	//num /= 10;
-	//return  num * 10;
+	if (num > 1800) num = 1800;	
 	return num;
 }
 
