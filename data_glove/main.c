@@ -7,11 +7,12 @@
 #include <string.h>
 
 #define NUM_SERVO 5
-#define IN_MIN 1000
-#define IN_MAX 4095
+#define IN_MIN_THUMB 3000
+#define IN_MIN 1800
+#define IN_MAX 3950
 #define OUT_MIN 1800
 #define OUT_MAX 500
-#define THRESHOLD 100
+#define THRESHOLD 90
 
 void SystemClock_Config(void);
 extern ARM_DRIVER_USART Driver_USART1;
@@ -103,7 +104,8 @@ __NO_RETURN void ADCDMA_thread(void *argument)
 			vout = (adc_vals[i] * 3.3) / 4096;
 			if (vout > 4095) vout = 4095;
 			voltages[i] = vout;
-			servo_val_mapped = map(adc_vals[i], IN_MIN, IN_MAX, OUT_MIN, OUT_MAX);
+			if (i == 0) servo_val_mapped = map(adc_vals[i], IN_MIN_THUMB, IN_MAX, OUT_MIN, OUT_MAX);
+			else servo_val_mapped = map(adc_vals[i], IN_MIN, IN_MAX, OUT_MIN, OUT_MAX);
 						
 			if (abs(servo_val_mapped - old_uart_buffer[i]) > THRESHOLD) {
 				uart_buffer[i] = servo_val_mapped;
