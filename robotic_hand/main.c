@@ -102,9 +102,9 @@ __NO_RETURN void SERVO_thread(void *argument)
 	
 	TIM5->PSC = 107;
 	TIM5->ARR = 19999;
-	TIM5->CCR1 = 1500;
-	TIM5->CCR2 = 1500;
-	TIM5->CCR3 = 1500;
+	TIM5->CCR1 = 500;
+	TIM5->CCR2 = 500;
+	TIM5->CCR3 = 500;
 	TIM5->CCMR1 |= (6 << 4); // TIM5_CH1
 	TIM5->CCMR1 |= (6 << 12); // TIM5_CH2
 	TIM5->CCMR2 |= (6 << 4); // TIM5_CH3
@@ -113,8 +113,8 @@ __NO_RETURN void SERVO_thread(void *argument)
 	// TIM 3 timer clk is 108MHz
 	TIM3->PSC = 107;
 	TIM3->ARR = 19999;
-	TIM3->CCR1 = 1500;
-	TIM3->CCR2 = 1500;
+	TIM3->CCR1 = 500;
+	TIM3->CCR2 = 500;
 	TIM3->CCMR1 |= (6 << 4); // TIM3_CH1
 	TIM3->CCMR1 |= (6 << 12); // TIM3_CH2
 	TIM3->CCER |= ((1 << 0) | (1 << 4));
